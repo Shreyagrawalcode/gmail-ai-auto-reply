@@ -1,0 +1,346 @@
+{
+  "name": "gmail.ai.auto.reply",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            },
+            {}
+          ]
+        },
+        "filters": {}
+      },
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -544,
+        368
+      ],
+      "id": "950ce838-fcd2-471b-9344-3c9840c6ee11",
+      "name": "Gmail Trigger",
+      "alwaysOutputData": true,
+      "executeOnce": false,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "YOUR_GMAIL_CREDENTIAL_ID",
+          "name": "Gmail OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "messageId": "={{ $json.id }}"
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        -320,
+        368
+      ],
+      "id": "82e758a1-9551-46b1-978d-d285a2ef3f6e",
+      "name": "Get a message",
+      "webhookId": "aeac6374-dafe-4179-987c-c2ed6acabfb0",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "YOUR_GMAIL_CREDENTIAL_ID",
+          "name": "Gmail OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.labels ? $json.labels.join(\",\") : \"\" }}",
+              "rightValue": "CATEGORY_PROMOTIONS",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              },
+              "id": "f3268c71-7a96-4c02-8b70-dd0ab07ecbb8"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -96,
+        368
+      ],
+      "id": "be9a94bf-3b16-490c-a471-f2b3cad32688",
+      "name": "isPromotional"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1",
+              "name": "subject",
+              "value": "={{ $json.Subject }}",
+              "type": "string"
+            },
+            {
+              "id": "2",
+              "name": "from",
+              "value": "={{ $json.From }}",
+              "type": "string"
+            },
+            {
+              "id": "3",
+              "name": "body",
+              "value": "={{ $json.snippet }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "52559216-e785-40c4-8671-10a10a65d26e",
+      "name": "Extract Email Content",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        128,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4O-MINI"
+        },
+        "responses": {
+          "values": [
+            {
+              "content": "=You are an email assistant. Read this email and decide:\n1. Does it need a follow-up reply? (yes/no)\n2. Write a professional auto-reply draft.\n\nEmail subject: {{ $json.subject }}\nEmail from: {{ $json.from }}\nEmail body: {{ $json.body }}\n\nRespond in JSON:\n{\"needs_followup\": true, \"reply\": \"your reply text here\"}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "id": "bca0c3c3-1d13-42d0-a569-32d40c560f27",
+      "name": "Analyze Email",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.1,
+      "position": [
+        352,
+        464
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "YOUR_OPENAI_CREDENTIAL_ID",
+          "name": "n8n free OpenAI API credits"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nlet outputText = \"\";\n\n// Extract text from OpenAI response structure\nif (input.output && Array.isArray(input.output) && input.output.length > 0) {\n  const firstOutput = input.output[0];\n  if (firstOutput.content && Array.isArray(firstOutput.content)) {\n    // Find text content\n    const textContent = firstOutput.content.find(c => c.type === \"text\");\n    if (textContent && textContent.text) {\n      outputText = textContent.text;\n    }\n  } else if (typeof firstOutput === \"string\") {\n    outputText = firstOutput;\n  }\n} else if (typeof input.output === \"string\") {\n  outputText = input.output;\n}\n\nlet parsed;\ntry {\n  parsed = JSON.parse(outputText);\n} catch (e) {\n  // Try to extract JSON from text\n  const match = outputText.match(/\\{[^}]+\\}/);\n  if (match) {\n    try {\n      parsed = JSON.parse(match[0]);\n    } catch (e2) {\n      parsed = { needs_followup: false, reply: \"\" };\n    }\n  } else {\n    parsed = { needs_followup: false, reply: \"\" };\n  }\n}\n\nreturn [parsed];"
+      },
+      "id": "77f8012a-7466-47fc-a860-202a54864deb",
+      "name": "Parse AI Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        704,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.needs_followup }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d59bb937-835d-49c7-9e36-0b1802aa10a9",
+      "name": "Needs Followup?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        928,
+        464
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "716f5e41-e6bb-44ec-92d3-6a35052ad754",
+      "name": "No Reply Needed",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1152,
+        560
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "3c8b33d5-f9a8-4d86-bc6f-6ff0742668c2",
+      "name": "Skip Promotional",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        128,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $(\"Extract Email Content\").item.json.from.match(/<(.+?)>/)?.[1] || $(\"Extract Email Content\").item.json.from }}",
+        "subject": "=Re: {{ $(\"Extract Email Content\").item.json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.reply }}",
+        "options": {}
+      },
+      "id": "0bbfc2a2-e53e-483b-ae8a-7d21c1d9d1dc",
+      "name": "Send Reply",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1152,
+        368
+      ],
+      "webhookId": "e4a54140-724e-4d0e-aedb-7227eb4d989e",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "YOUR_GMAIL_CREDENTIAL_ID",
+          "name": "Gmail OAuth2 API"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get a message": {
+      "main": [
+        [
+          {
+            "node": "isPromotional",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "isPromotional": {
+      "main": [
+        [
+          {
+            "node": "Skip Promotional",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Extract Email Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Email Content": {
+      "main": [
+        [
+          {
+            "node": "Analyze Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Email": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Response": {
+      "main": [
+        [
+          {
+            "node": "Needs Followup?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Followup?": {
+      "main": [
+        [
+          {
+            "node": "Send Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Reply Needed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "30ab9f96-9d17-44e2-9ad0-108c8be3f497",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "YOUR_INSTANCE_ID"
+  },
+  "id": "ULVHR1a0CIC9klUM",
+  "tags": []
+}
